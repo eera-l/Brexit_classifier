@@ -2,8 +2,8 @@ from nltk.corpus import stopwords
 from nltk.stem.wordnet import WordNetLemmatizer
 from nltk.stem.snowball import SnowballStemmer
 from sklearn.dummy import DummyClassifier
-from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.linear_model import SGDClassifier, LogisticRegression
 from sklearn.model_selection import cross_validate, GridSearchCV
 from sklearn.naive_bayes import MultinomialNB
 from sklearn.preprocessing import MinMaxScaler
@@ -26,7 +26,7 @@ def read_labels(y):
         labels[0] = labels[0] * 1.2 # Assign larger weight to original annotator
         mean = np.mean(labels)
         results.append(1 if mean >= 0.5 else 0)
-    ydf = pd.DataFrame(results, columns='Label')
+    ydf = pd.DataFrame(results, columns=['Label'])
     return ydf
 
 
@@ -89,8 +89,18 @@ def perform_lda(x):
     # ldamodel = LdaModel(corpus, num_topics=2, id2word=dictionary,
     #                        passes=50)
     # ldamodel.save('lda.model')
-    ldamodel = LdaModel.load('lda.model')
-    print(ldamodel.print_topics(num_topics=2, num_words=15))
+    # print(ldamodel.print_topics(num_topics=2, num_words=15))
+    return corpus
+
+
+def add_lda(x, corpus):
+    train_lda = []
+    lda = LdaModel.load('lda.model')
+    for i in range(len(x)):
+        top_topics = lda.get_document_topics(corpus[i], minimum_probability=0.0)
+        topic_vec = [top_topics[i][1] for i in range(2)]
+        train_lda.append(topic_vec)
+    return train_lda
 
 
 def add_length(x):
@@ -102,6 +112,7 @@ def add_length(x):
 
 def tfidf_vectorize(x):
     tfidf = TfidfVectorizer(analyzer='word', ngram_range=(1, 4), stop_words='english', strip_accents='unicode')
+    # tfidf = TfidfVectorizer()
     x_vect = tfidf.fit_transform(x)
     return x_vect
 
@@ -121,7 +132,7 @@ def train_classifier(clf, x, y):
 def classify(classifiers, x, y):
     train_scores = []
     test_scores = []
-    y = y['NewLabel']
+    y = y['Label']
     for clf in classifiers:
         clf = train_classifier(clf, x, y)
 
@@ -137,13 +148,13 @@ def classify(classifiers, x, y):
 
 def initialize_classifiers(x, y):
 
-    dmc = DummyClassifier(strategy='stratified')
-    lsvc = LinearSVC()
-    mnb = MultinomialNB(alpha=2.0)
-    rfc = RandomForestClassifier()
-    gbc = GradientBoostingClassifier()
+    dmc = DummyClassifier(random_state=24)
+    lsvc = LinearSVC(random_state=24)
+    mnb = MultinomialNB()
+    sgd = SGDClassifier(random_state=24)
+    lrc = LogisticRegression(random_state=24)
 
-    classifiers = [dmc, lsvc, mnb, rfc, gbc]
+    classifiers = [dmc, lsvc, mnb, sgd, lrc]
 
     y = y['Label']
 
@@ -159,10 +170,12 @@ def compare_with_gscv(clf, x, y):
     name = clf.__class__.__name__
     param_grid = {}
     if name is 'DummyClassifier':
-        return
+        param_grid = {
+            'strategy': ['stratified']
+        }
     elif name is 'LinearSVC':
         param_grid = {
-            'penalty': ['l1', 'l2'],
+            'penalty': ['l2'],
             'max_iter': [500, 1000, 1500],
             'loss': ['hinge', 'squared_hinge']
         }
@@ -171,22 +184,18 @@ def compare_with_gscv(clf, x, y):
             'alpha': [0.5, 1.0, 1.5],
             'fit_prior': [True, False],
         }
-    elif name is 'RandomForestClassifier':
+    elif name is 'SGDClassifier':
         param_grid = {
-            'min_samples_split': [3, 5, 10],
-            'n_estimators': [100, 300],
-            'max_depth': [3, 5, 15, 25],
-            'max_features': [3, 5, 10, 20]
+            'loss': ['hinge', 'log', 'perceptron'],
+            'n_jobs': [-1],
+            'early_stopping': [True]
         }
-    elif name is 'GradientBoostingClassifier':
+    elif name is 'LogisticRegression':
         param_grid = {
-            'loss': ['deviance', 'exponential'],
-            'learning_rate': [0.1, 0.05],
-            'n_estimators': [100, 300],
-            'max_depth': [3, 5, 15, 25]
+            'penalty': ['l1', 'l2']
         }
 
-    refit_score = 'accuracy_score'
+    refit_score = 'precision_score'
     scorers = {
         'precision_score': make_scorer(precision_score),
         'recall_score': make_scorer(recall_score),
@@ -197,7 +206,7 @@ def compare_with_gscv(clf, x, y):
     grid_search.fit(x, y)
     print('\nScore {} classifier optimized for {} on the test data:'.format(name, refit_score))
     print(grid_search.best_score_)
-    print(grid_search.best_estimator_.alpha)
+    print(grid_search.best_estimator_)
     return grid_search
 
 
@@ -210,7 +219,9 @@ xtr = stem(xtr, "Comment")
 x_length = add_length(xtr['Comment'])
 x_tfidf = tfidf_vectorize(xtr['Comment'])
 x_new = combine_tfidf_and_length(x_tfidf, x_length)
-#perform_lda(xtr)
+corpus = perform_lda(xtr)
+x_lda = add_lda(xtr, corpus)
+x_new = combine_tfidf_and_length(x_new, x_lda)
 initialize_classifiers(x_new, ytr)
 
 
