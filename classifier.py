@@ -19,21 +19,23 @@ import numpy as np
 
 def read_labels(y):
     results = []
-    for row in y:
+    for idx, row in enumerate(y):
         labels = row.split("/")
         labels = [num for num in labels if num is not "-1"]
         labels = list(map(int, labels))
         labels[0] = labels[0] * 1.2 # Assign larger weight to original annotator
         mean = np.mean(labels)
-        results.append(1 if mean >= 0.5 else 0)
-    return y.assign(NewLabel=results)
+        y[idx] = 1 if mean >= 0.5 else 0
+    return y
 
 
 
 def read_file():
-    dataframe = pd.read_csv("a2a_train_round1.tsv", sep="\t", names=["Label", "Comment"])
+    dataframe = pd.read_csv("a2a_train_final.tsv", sep="\t", names=["Label", "Comment"])
     xtrain = dataframe.drop(columns=['Label'])
     ytrain = dataframe.drop(columns=['Comment'])
+    ytrain = ytrain['Label']
+    ytrain = read_labels(ytrain)
     return xtrain, ytrain
 
 
@@ -118,7 +120,7 @@ def train_classifier(clf, x, y):
 def classify(classifiers, x, y):
     train_scores = []
     test_scores = []
-    y = y['Label']
+    y = y['NewLabel']
     for clf in classifiers:
         clf = train_classifier(clf, x, y)
 
@@ -152,7 +154,7 @@ xtr = remove_punctuation(xtr, "Comment")
 xtr = lower_case(xtr, "Comment")
 xtr = remove_stopwords(xtr, "Comment")
 xtr = lemmatize(xtr, "Comment")
-# xtr = stem(xtr, "Comment")
+xtr = stem(xtr, "Comment")
 x_length = add_length(xtr['Comment'])
 x_tfidf = tfidf_vectorize(xtr['Comment'])
 x_new = combine_tfidf_and_length(x_tfidf, x_length)
