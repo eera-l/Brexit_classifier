@@ -2,13 +2,13 @@ from nltk.corpus import stopwords
 from nltk.stem.wordnet import WordNetLemmatizer
 from nltk.stem.snowball import SnowballStemmer
 from sklearn.dummy import DummyClassifier
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn import svm
-from sklearn.model_selection import cross_validate
+from sklearn.model_selection import cross_validate, GridSearchCV
 from sklearn.naive_bayes import MultinomialNB
-from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.externals import joblib
+from sklearn.metrics import make_scorer, recall_score, accuracy_score, precision_score, confusion_matrix
 from scipy import sparse
 from sklearn.svm import LinearSVC
 from gensim import corpora
@@ -19,14 +19,15 @@ import numpy as np
 
 def read_labels(y):
     results = []
-    for idx, row in enumerate(y):
+    for row in y:
         labels = row.split("/")
         labels = [num for num in labels if num is not "-1"]
         labels = list(map(int, labels))
         labels[0] = labels[0] * 1.2 # Assign larger weight to original annotator
         mean = np.mean(labels)
-        y[idx] = 1 if mean >= 0.5 else 0
-    return y
+        results.append(1 if mean >= 0.5 else 0)
+    ydf = pd.DataFrame(results, columns='Label')
+    return ydf
 
 
 
@@ -137,16 +138,67 @@ def classify(classifiers, x, y):
 def initialize_classifiers(x, y):
 
     dmc = DummyClassifier(strategy='stratified')
-    svc = svm.SVC(kernel='linear')
-    lr = LogisticRegression(solver='newton-cg', fit_intercept=True)
     lsvc = LinearSVC()
     mnb = MultinomialNB(alpha=2.0)
+    rfc = RandomForestClassifier()
+    gbc = GradientBoostingClassifier()
 
-    classifiers = [dmc, svc, lr, lsvc, mnb]
+    classifiers = [dmc, lsvc, mnb, rfc, gbc]
 
-    train_scores, test_scores = classify(classifiers, x, y)
-    for train, test in zip(train_scores, test_scores):
-        print("Train: ", train, " test: ", test)
+    y = y['Label']
+
+    for clf in classifiers:
+        compare_with_gscv(clf, x, y)
+
+    # train_scores, test_scores = classify(classifiers, x, y)
+    # for train, test in zip(train_scores, test_scores):
+    #     print("Train: ", train, " test: ", test)
+
+
+def compare_with_gscv(clf, x, y):
+    name = clf.__class__.__name__
+    param_grid = {}
+    if name is 'DummyClassifier':
+        return
+    elif name is 'LinearSVC':
+        param_grid = {
+            'penalty': ['l1', 'l2'],
+            'max_iter': [500, 1000, 1500],
+            'loss': ['hinge', 'squared_hinge']
+        }
+    elif name is 'MultinomialNB':
+        param_grid = {
+            'alpha': [0.5, 1.0, 1.5],
+            'fit_prior': [True, False],
+        }
+    elif name is 'RandomForestClassifier':
+        param_grid = {
+            'min_samples_split': [3, 5, 10],
+            'n_estimators': [100, 300],
+            'max_depth': [3, 5, 15, 25],
+            'max_features': [3, 5, 10, 20]
+        }
+    elif name is 'GradientBoostingClassifier':
+        param_grid = {
+            'loss': ['deviance', 'exponential'],
+            'learning_rate': [0.1, 0.05],
+            'n_estimators': [100, 300],
+            'max_depth': [3, 5, 15, 25]
+        }
+
+    refit_score = 'accuracy_score'
+    scorers = {
+        'precision_score': make_scorer(precision_score),
+        'recall_score': make_scorer(recall_score),
+        'accuracy_score': make_scorer(accuracy_score)
+    }
+    grid_search = GridSearchCV(clf, param_grid, scoring=scorers, refit=refit_score,
+                               cv=5, return_train_score=True, n_jobs=-1)
+    grid_search.fit(x, y)
+    print('\nScore {} classifier optimized for {} on the test data:'.format(name, refit_score))
+    print(grid_search.best_score_)
+    print(grid_search.best_estimator_.alpha)
+    return grid_search
 
 
 xtr, ytr = read_file()
