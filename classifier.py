@@ -1,14 +1,16 @@
 from nltk.corpus import stopwords
 from nltk.stem.wordnet import WordNetLemmatizer
+from nltk.stem.snowball import SnowballStemmer
+from sklearn.dummy import DummyClassifier
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn import svm
-from sklearn.model_selection import cross_val_score
+from sklearn.model_selection import cross_validate
 from sklearn.naive_bayes import MultinomialNB
-from sklearn.tree import DecisionTreeClassifier
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.linear_model import LogisticRegression
+from sklearn.pipeline import make_pipeline
 from sklearn.svm import LinearSVC
+from gensim import corpora
+from gensim.models.ldamodel import LdaModel
 import pandas as pd
 import numpy as np
 
@@ -22,7 +24,10 @@ def read_file():
 
 def remove_stopwords(df, column):
     stop = stopwords.words('english')
-    df[column] = df[column].apply(lambda x: ' '.join([word for word in x.split() if word not in (stop)]))
+    stop.remove('against')
+    stop.append('the')
+    stop.append('a')
+    df[column] = df[column].apply(lambda x: ' '.join([word for word in x.split() if word not in stop]))
     return df
 
 
@@ -50,41 +55,75 @@ def lemmatize(df, column):
     return df
 
 
-def tfid_vectorize(x, column):
-    tf = TfidfVectorizer(analyzer='word', ngram_range=(1,2), stop_words='english', strip_accents='unicode')
-    xvect = tf.fit_transform(x[column])
-    return xvect
+def stem(df, column):
+    stemmer = SnowballStemmer("english")
+    df[column] = df[column].apply(lambda x: ' '.join([stemmer.stem(y) for y in x.split()]))
+    return df
 
 
-def classify(x, y):
-    svm_cl = svm.SVC(kernel='linear')
-    print("SVM: ", np.mean(cross_val_score(svm_cl, x, y, cv=5)))
+def perform_lda(x):
+    texts = x.values.tolist()
+    words = []
+    for text in texts:
+        words.append([x for x in text[0].split()])
+    dictionary = corpora.Dictionary(words)
+    corpus = [dictionary.doc2bow(word) for word in words]
+    # ldamodel = LdaModel(corpus, num_topics=2, id2word=dictionary,
+    #                        passes=50)
+    # ldamodel.save('lda.model')
+    ldamodel = LdaModel.load('lda.model')
+    print(ldamodel.print_topics(num_topics=2, num_words=15))
 
-    # dtc = DecisionTreeClassifier(random_state=0)
-    # print("Decision tree classifier: ", cross_val_score(dtc, x, y, cv=10))
-    #
-    # rfc = RandomForestClassifier(n_estimators=500, criterion='entropy')
-    # print("random forest classifier: ", cross_val_score(rfc, x, y, cv=10))
 
-    # gbc = GradientBoostingClassifier(loss='deviance')
-    # print("Gradient boosting classifier: ", cross_val_score(gbc, x, y, cv=3))
+def train_classifier(clf, x, y):
+    pipeline = make_pipeline(
+        TfidfVectorizer(analyzer='word', ngram_range=(1,4), stop_words='english', strip_accents='unicode'),
+        clf)
+    pipeline.fit(x, y)
+    return pipeline
 
-    lrc = LogisticRegression()
-    print("Logistic regression classifier: ", np.mean(cross_val_score(lrc, x, y, cv=5)))
 
-    lsc = LinearSVC()
-    print("LinearSVC classifier: ", np.mean(cross_val_score(lsc, x, y, cv=5)))
+def classify(classifiers, x, y):
+    train_scores = []
+    test_scores = []
+    x = x['Comment']
+    y = y['Label']
+    for clf in classifiers:
+        pipeline = train_classifier(clf, x, y)
 
-    mnb = MultinomialNB()
-    print("Multinomial NB classifier: ", np.mean(cross_val_score(lsc, x, y, cv=5)))
+        scores = cross_validate(pipeline, x, y, cv=5,
+                                scoring=('accuracy', 'f1'),
+                                return_train_score=True)
+        name = pipeline.steps[1][0]
+
+        train_scores.append((np.mean(scores['train_accuracy']), np.mean(scores['train_f1']), name))
+        test_scores.append((np.mean(scores['test_accuracy']), np.mean(scores['test_f1']), name))
+
+    return train_scores, test_scores
+
+
+def initialize_classifiers(x, y):
+
+    dmc = DummyClassifier(strategy='stratified')
+    svc = svm.SVC(kernel='linear')
+    lr = LogisticRegression(solver='newton-cg', fit_intercept=True)
+    lsvc = LinearSVC(max_iter=2000)
+    mnb = MultinomialNB(alpha=2.0)
+
+    classifiers = [dmc, svc, lr, lsvc, mnb]
+
+    train_scores, test_scores = classify(classifiers, x, y)
+    for train, test in zip(train_scores, test_scores):
+        print("Train: ", train, " test: ", test)
 
 
 xtr, ytr = read_file()
-xtr = remove_stopwords(xtr, "Comment")
 xtr = remove_punctuation(xtr, "Comment")
 xtr = lower_case(xtr, "Comment")
+xtr = remove_stopwords(xtr, "Comment")
 xtr = lemmatize(xtr, "Comment")
-xv = tfid_vectorize(xtr, "Comment")
-classify(xv, ytr)
+#perform_lda(xtr)
+# xtr = stem(xtr, "Comment")
+initialize_classifiers(xtr, ytr)
 
 
