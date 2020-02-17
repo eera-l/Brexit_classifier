@@ -2,6 +2,7 @@ from nltk.corpus import stopwords
 from nltk.stem.wordnet import WordNetLemmatizer
 from nltk.stem.snowball import SnowballStemmer
 from sklearn.dummy import DummyClassifier
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import SGDClassifier, LogisticRegression
 from sklearn.model_selection import GridSearchCV
@@ -14,12 +15,13 @@ from sklearn.svm import LinearSVC
 from gensim import corpora
 from gensim.models.ldamodel import LdaModel
 from wordsegment import load, segment
+import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
 import sys
 
 
-def read_labels(y):
+def read_mixed_labels(y):
     results = []
     for row in y:
         labels = row.split("/")
@@ -37,8 +39,12 @@ def read_file():
     xtrain = dataframe.drop(columns=['Label'])
     ytrain = dataframe.drop(columns=['Comment'])
     ytrain = ytrain['Label']
-    ytrain = read_labels(ytrain)
-    return xtrain, ytrain
+    ytrain = read_mixed_labels(ytrain)
+    datatest = pd.read_csv("a2a_test_final.tsv", sep="\t", names=["Label", "Comment"])
+    xtest = datatest.drop(columns=["Label"])
+    ytest = datatest.drop(columns=["Comment"])
+    ytest = ytest['Label']
+    return xtrain, ytrain, xtest, ytest
 
 
 def remove_stopwords(df, column):
@@ -116,9 +122,12 @@ def add_length(x):
     return data
 
 
-def tfidf_vectorize(x):
-    tfidf = TfidfVectorizer(analyzer='word', ngram_range=(1, 4), stop_words='english', strip_accents='unicode')
-    x_vect = tfidf.fit_transform(x)
+def tfidf_vectorize(tfidf, x, test):
+
+    if test:
+        x_vect = tfidf.transform(x)
+    else:
+        x_vect = tfidf.fit_transform(x)
     return x_vect
 
 
@@ -127,23 +136,24 @@ def combine_vector_matrix_and_array(x_t, x_l):
     return x_new
 
 
-def initialize_classifiers(x, y, save=False):
+def initialize_classifiers(x, y, xtf, yte, tfidf, save=False):
 
-    dmc = DummyClassifier()
-    lsvc = LinearSVC()
+    dmc = DummyClassifier(random_state=17)
+    lsvc = LinearSVC(random_state=24)
     mnb = MultinomialNB()
     sgd = SGDClassifier(random_state=51)
-    lrc = LogisticRegression()
+    lrc = LogisticRegression(random_state=12)
+    rfc = RandomForestClassifier(random_state=18)
 
-    classifiers = [dmc, lsvc, mnb, sgd, lrc]
+    classifiers = [dmc, lsvc, mnb, sgd, lrc, rfc]
 
     y = y['Label']
 
     for clf in classifiers:
-        compare_with_gscv(clf, x, y, save)
+        compare_with_gscv(clf, x, y, xtf, yte, tfidf, save)
 
 
-def compare_with_gscv(clf, x, y, save):
+def compare_with_gscv(clf, x, y, xtf, yte, tfidf, save):
     name = clf.__class__.__name__
     param_grid = {}
     if name is 'DummyClassifier':
@@ -177,6 +187,10 @@ def compare_with_gscv(clf, x, y, save):
         param_grid = {
             'penalty': ['l1', 'l2'],
         }
+    elif name is 'RandomForestClassifier':
+        param_grid = {
+            'n_estimators': [20, 30]
+        }
 
     refit_score = 'accuracy_score'
     scorers = {
@@ -196,17 +210,49 @@ def compare_with_gscv(clf, x, y, save):
     print('\nScore {} classifier optimized for {} on the test data:'.format(name, refit_score))
     print(grid_search.best_score_)
     print(grid_search.best_estimator_)
+
+    y_pred = grid_search.predict(xtf)
+    print('\nConfusion matrix of {} optimized for {} on the test data:'.format(name, refit_score))
+    print(pd.DataFrame(confusion_matrix(yte, y_pred),
+                       columns=['pred_neg', 'pred_pos'], index=['neg', 'pos']))
+    print('\nAccuracy score of {} optimized for {} on the test data:'.format(name, refit_score))
+    print(accuracy_score(yte, y_pred))
+
+    if name is 'RandomForestClassifier':
+        plot_features(tfidf, grid_search)
     return grid_search
 
 
-xtr, ytr = read_file()
+def plot_features(tfidf, grid_search):
+    features_imp = {}
+    for name, importance in zip(tfidf.get_feature_names(), grid_search.best_estimator_.feature_importances_):
+        features_imp[name] = importance
+
+    features = {k: features_imp[k[0]] for k in
+                   sorted(features_imp.items(), key=lambda item: item[1], reverse=True)[:15]}
+
+    pd.DataFrame(features, index=[0]).plot(kind='bar')
+    plt.legend(loc='center left', bbox_to_anchor=(1, 0.5))
+    plt.show()
+
+
+
+xtr, ytr, xte, yte = read_file()
 xtr = remove_punctuation(xtr, "Comment")
+xte = remove_punctuation(xte, "Comment")
 xtr = lower_case(xtr, "Comment")
+xte = lower_case(xte, "Comment")
 xtr = remove_stopwords(xtr, "Comment")
+xte = remove_stopwords(xte, "Comment")
 xtr = segment_words(xtr, "Comment")
+xte = segment_words(xte, "Comment")
 xtr = lemmatize(xtr, "Comment")
+xte = lemmatize(xte, "Comment")
 xtr = stem(xtr, "Comment")
-x_tfidf = tfidf_vectorize(xtr['Comment'])
+xte = stem(xte, "Comment")
+tfidf = TfidfVectorizer(analyzer='word', ngram_range=(1, 4), stop_words='english', strip_accents='unicode')
+x_tfidf = tfidf_vectorize(tfidf, xtr['Comment'], False)
+xte_tfidf = tfidf_vectorize(tfidf, xte['Comment'], True)
 
 
 if len(sys.argv) > 1:
@@ -222,9 +268,11 @@ if len(sys.argv) > 1:
             x_new = combine_vector_matrix_and_array(xtr, x_lda)
 
     if ('--length' in sys.argv or'--lda' in sys.argv) and '--save' in sys.argv:
-        initialize_classifiers(x_new, ytr, True)
+        initialize_classifiers(x_new, ytr, xte_tfidf, yte, tfidf, True)
     elif '--save' in sys.argv:
-        initialize_classifiers(x_tfidf, ytr, True)
+        initialize_classifiers(x_tfidf, ytr, xte_tfidf, yte, tfidf, True)
 else:
-    initialize_classifiers(x_tfidf, ytr, False)
+    initialize_classifiers(x_tfidf, ytr, xte_tfidf, yte, tfidf, False)
+
+
 
