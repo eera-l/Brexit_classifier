@@ -1,3 +1,4 @@
+import nltk
 from nltk.corpus import stopwords
 from nltk.stem.wordnet import WordNetLemmatizer
 from nltk.stem.snowball import SnowballStemmer
@@ -48,6 +49,7 @@ def read_file():
 
 
 def remove_stopwords(df, column):
+    nltk.download('stopwords')
     stop = stopwords.words('english')
     stop.remove('against')
     stop.remove('no')
@@ -77,6 +79,7 @@ def segment_words(df, column):
 
 
 def lemmatize(df, column):
+    nltk.download('wordnet')
     lemmatizer = WordNetLemmatizer()
     df[column] = df[column].apply(lambda x: ' '.join([lemmatizer.lemmatize(word, 'n') for word in x.split()]))
     df[column] = df[column].apply(lambda x: ' '.join([lemmatizer.lemmatize(word, 'v') for word in x.split()]))
@@ -216,7 +219,9 @@ def compare_with_gscv(clf, x, y, xtf, yte, tfidf, save):
     print(pd.DataFrame(confusion_matrix(yte, y_pred),
                        columns=['pred_neg', 'pred_pos'], index=['neg', 'pos']))
     print('\nAccuracy score of {} optimized for {} on the test data:'.format(name, refit_score))
-    print(accuracy_score(yte, y_pred))
+    print('Accuracy: ', accuracy_score(yte, y_pred))
+    print('Precision: ', precision_score(yte, y_pred))
+    print('F1 score: ', f1_score(yte, y_pred))
 
     if name is 'RandomForestClassifier':
         plot_features(tfidf, grid_search)
@@ -250,7 +255,7 @@ xtr = lemmatize(xtr, "Comment")
 xte = lemmatize(xte, "Comment")
 xtr = stem(xtr, "Comment")
 xte = stem(xte, "Comment")
-tfidf = TfidfVectorizer(analyzer='word', ngram_range=(1, 4), stop_words='english', strip_accents='unicode')
+tfidf = TfidfVectorizer(analyzer='word', ngram_range=(1, 4), strip_accents='unicode')
 x_tfidf = tfidf_vectorize(tfidf, xtr['Comment'], False)
 xte_tfidf = tfidf_vectorize(tfidf, xte['Comment'], True)
 
@@ -259,18 +264,24 @@ if len(sys.argv) > 1:
     if '--length' in sys.argv:
         x_length = add_length(xtr['Comment'])
         x_new = combine_vector_matrix_and_array(x_tfidf, x_length)
+        x_te_length = add_length(xte['Comment'])
+        x_te_new = combine_vector_matrix_and_array(xte_tfidf, x_te_length)
     if '--lda' in sys.argv:
         corpus = perform_lda(xtr)
         x_lda = add_lda(xtr, corpus)
+        x_te_lda = add_lda(xte, corpus)
         if '--length' in sys.argv:
             x_new = combine_vector_matrix_and_array(x_new, x_lda)
+            x_te_new_2 = combine_vector_matrix_and_array(x_te_new, x_te_lda)
         else:
             x_new = combine_vector_matrix_and_array(xtr, x_lda)
 
     if ('--length' in sys.argv or'--lda' in sys.argv) and '--save' in sys.argv:
-        initialize_classifiers(x_new, ytr, xte_tfidf, yte, tfidf, True)
+        initialize_classifiers(x_new, ytr, x_te_new_2, yte, tfidf, True)
     elif '--save' in sys.argv:
         initialize_classifiers(x_tfidf, ytr, xte_tfidf, yte, tfidf, True)
+    else:
+        initialize_classifiers(x_new, ytr, x_te_new_2, yte, tfidf, False)
 else:
     initialize_classifiers(x_tfidf, ytr, xte_tfidf, yte, tfidf, False)
 
