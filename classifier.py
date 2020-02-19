@@ -148,7 +148,7 @@ def initialize_classifiers(x, y, xte, xtf, yte, tfidf, save=False):
     lrc = LogisticRegression(random_state=12)
     rfc = RandomForestClassifier(random_state=18)
 
-    classifiers = [dmc, lsvc, mnb, sgd, lrc]
+    classifiers = [dmc, lsvc, mnb, sgd, lrc, rfc]
 
     y = y['Label']
 
@@ -173,10 +173,6 @@ def compare_with_gscv(clf, x, y, xte, xtf, yte, tfidf, save):
         param_grid = {
             'alpha': [0.5, 1.0, 1.5],
             'fit_prior': [True, False],
-        }
-    elif name is 'GaussianNB':
-        param_grid = {
-            'var_smoothing': [1e-9, 1e-8],
         }
     elif name is 'SGDClassifier':
         param_grid = {
@@ -226,7 +222,7 @@ def compare_with_gscv(clf, x, y, xte, xtf, yte, tfidf, save):
     if name is 'MultinomialNB':
         y_test = np.asarray(yte)
         misclassified = np.where(y_test != y_pred)
-        with pd.option_context('display.max_rows', None, 'display.max_columns', None):
+        with pd.option_context('display.max_rows', None, 'display.max_columns', None, 'display.max_colwidth', -1):
             for idx in misclassified:
                 print(xte['Comment'][idx])
 
