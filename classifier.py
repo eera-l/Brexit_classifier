@@ -139,7 +139,7 @@ def combine_vector_matrix_and_array(x_t, x_l):
     return x_new
 
 
-def initialize_classifiers(x, y, xtf, yte, tfidf, save=False):
+def initialize_classifiers(x, y, xte, xtf, yte, tfidf, save=False):
 
     dmc = DummyClassifier(random_state=17)
     lsvc = LinearSVC(random_state=24)
@@ -148,15 +148,15 @@ def initialize_classifiers(x, y, xtf, yte, tfidf, save=False):
     lrc = LogisticRegression(random_state=12)
     rfc = RandomForestClassifier(random_state=18)
 
-    classifiers = [dmc, lsvc, mnb, sgd, lrc, rfc]
+    classifiers = [dmc, lsvc, mnb, sgd, lrc]
 
     y = y['Label']
 
     for clf in classifiers:
-        compare_with_gscv(clf, x, y, xtf, yte, tfidf, save)
+        compare_with_gscv(clf, x, y, xte, xtf, yte, tfidf, save)
 
 
-def compare_with_gscv(clf, x, y, xtf, yte, tfidf, save):
+def compare_with_gscv(clf, x, y, xte, xtf, yte, tfidf, save):
     name = clf.__class__.__name__
     param_grid = {}
     if name is 'DummyClassifier':
@@ -210,7 +210,7 @@ def compare_with_gscv(clf, x, y, xtf, yte, tfidf, save):
     if save:
         joblib.dump(grid_search, name + '.pkl')
 
-    print('\nScore {} classifier optimized for {} on the test data:'.format(name, refit_score))
+    print('\nScore {} classifier optimized for {} on the training data:'.format(name, refit_score))
     print(grid_search.best_score_)
     print(grid_search.best_estimator_)
 
@@ -222,6 +222,13 @@ def compare_with_gscv(clf, x, y, xtf, yte, tfidf, save):
     print('Accuracy: ', accuracy_score(yte, y_pred))
     print('Precision: ', precision_score(yte, y_pred))
     print('F1 score: ', f1_score(yte, y_pred))
+
+    if name is 'MultinomialNB':
+        y_test = np.asarray(yte)
+        misclassified = np.where(y_test != y_pred)
+        with pd.option_context('display.max_rows', None, 'display.max_columns', None):
+            for idx in misclassified:
+                print(xte['Comment'][idx])
 
     if name is 'RandomForestClassifier':
         plot_features(tfidf, grid_search)
@@ -243,6 +250,7 @@ def plot_features(tfidf, grid_search):
 
 
 xtr, ytr, xte, yte = read_file()
+xte_clean = pd.DataFrame.copy(xte, deep=True)
 xtr = remove_punctuation(xtr, "Comment")
 xte = remove_punctuation(xte, "Comment")
 xtr = lower_case(xtr, "Comment")
@@ -277,13 +285,13 @@ if len(sys.argv) > 1:
             x_new = combine_vector_matrix_and_array(xtr, x_lda)
 
     if ('--length' in sys.argv or'--lda' in sys.argv) and '--save' in sys.argv:
-        initialize_classifiers(x_new, ytr, x_te_new_2, yte, tfidf, True)
+        initialize_classifiers(x_new, ytr, xte_clean, x_te_new_2, yte, tfidf, True)
     elif '--save' in sys.argv:
-        initialize_classifiers(x_tfidf, ytr, xte_tfidf, yte, tfidf, True)
+        initialize_classifiers(x_tfidf, ytr, xte_clean, xte_tfidf, yte, tfidf, True)
     else:
-        initialize_classifiers(x_new, ytr, x_te_new_2, yte, tfidf, False)
+        initialize_classifiers(x_new, ytr, xte_clean, x_te_new_2, yte, tfidf, False)
 else:
-    initialize_classifiers(x_tfidf, ytr, xte_tfidf, yte, tfidf, False)
+    initialize_classifiers(x_tfidf, ytr, xte_clean, xte_tfidf, yte, tfidf, False)
 
 
 
