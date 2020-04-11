@@ -19,7 +19,7 @@ from wordsegment import load, segment
 import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
-import sys
+import argparse
 
 
 def read_mixed_labels(y):
@@ -244,50 +244,65 @@ def plot_features(tfidf, grid_search):
     plt.show()
 
 
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description='Pre-process and classify comments by pro- or anti-Brexit stance.',
+        epilog = 'Example: classifier.py --length --lda --save'
+    )
+    parser.add_argument('--length', '-l',
+                        action='store_true',
+                        help='Add length of comments as feature')
+    parser.add_argument('--lda', '-d',
+                        action='store_true',
+                        help='Perform LDA topic modeling and add it as feature')
+    parser.add_argument('--save', '-s',
+                        action='store_true',
+                        help='Save pickle of trained models')
+    args = parser.parse_args()
+    length = args.length
+    lda = args.lda
+    save = args.save
+    xtr, ytr, xte, yte = read_file()
+    xte_clean = pd.DataFrame.copy(xte, deep=True)
+    xtr = remove_punctuation(xtr, "Comment")
+    xte = remove_punctuation(xte, "Comment")
+    xtr = lower_case(xtr, "Comment")
+    xte = lower_case(xte, "Comment")
+    xtr = remove_stopwords(xtr, "Comment")
+    xte = remove_stopwords(xte, "Comment")
+    xtr = segment_words(xtr, "Comment")
+    xte = segment_words(xte, "Comment")
+    xtr = lemmatize(xtr, "Comment")
+    xte = lemmatize(xte, "Comment")
+    xtr = stem(xtr, "Comment")
+    xte = stem(xte, "Comment")
+    tfidf = TfidfVectorizer(analyzer='word', ngram_range=(1, 4), strip_accents='unicode')
+    x_tfidf = tfidf_vectorize(tfidf, xtr['Comment'], False)
+    xte_tfidf = tfidf_vectorize(tfidf, xte['Comment'], True)
 
-xtr, ytr, xte, yte = read_file()
-xte_clean = pd.DataFrame.copy(xte, deep=True)
-xtr = remove_punctuation(xtr, "Comment")
-xte = remove_punctuation(xte, "Comment")
-xtr = lower_case(xtr, "Comment")
-xte = lower_case(xte, "Comment")
-xtr = remove_stopwords(xtr, "Comment")
-xte = remove_stopwords(xte, "Comment")
-xtr = segment_words(xtr, "Comment")
-xte = segment_words(xte, "Comment")
-xtr = lemmatize(xtr, "Comment")
-xte = lemmatize(xte, "Comment")
-xtr = stem(xtr, "Comment")
-xte = stem(xte, "Comment")
-tfidf = TfidfVectorizer(analyzer='word', ngram_range=(1, 4), strip_accents='unicode')
-x_tfidf = tfidf_vectorize(tfidf, xtr['Comment'], False)
-xte_tfidf = tfidf_vectorize(tfidf, xte['Comment'], True)
-
-
-if len(sys.argv) > 1:
-    if '--length' in sys.argv:
+    if length:
         x_length = add_length(xtr['Comment'])
         x_new = combine_vector_matrix_and_array(x_tfidf, x_length)
         x_te_length = add_length(xte['Comment'])
         x_te_new = combine_vector_matrix_and_array(xte_tfidf, x_te_length)
-    if '--lda' in sys.argv:
+    if lda:
         corpus = perform_lda(xtr)
         x_lda = add_lda(xtr, corpus)
         x_te_lda = add_lda(xte, corpus)
-        if '--length' in sys.argv:
+        if length:
             x_new = combine_vector_matrix_and_array(x_new, x_lda)
             x_te_new_2 = combine_vector_matrix_and_array(x_te_new, x_te_lda)
         else:
             x_new = combine_vector_matrix_and_array(xtr, x_lda)
 
-    if ('--length' in sys.argv or'--lda' in sys.argv) and '--save' in sys.argv:
-        initialize_classifiers(x_new, ytr, xte_clean, x_te_new_2, yte, tfidf, True)
-    elif '--save' in sys.argv:
-        initialize_classifiers(x_tfidf, ytr, xte_clean, xte_tfidf, yte, tfidf, True)
+        if (length or lda) and save:
+            initialize_classifiers(x_new, ytr, xte_clean, x_te_new_2, yte, tfidf, True)
+        elif save:
+            initialize_classifiers(x_tfidf, ytr, xte_clean, xte_tfidf, yte, tfidf, True)
+        else:
+            initialize_classifiers(x_new, ytr, xte_clean, x_te_new_2, yte, tfidf, False)
     else:
-        initialize_classifiers(x_new, ytr, xte_clean, x_te_new_2, yte, tfidf, False)
-else:
-    initialize_classifiers(x_tfidf, ytr, xte_clean, xte_tfidf, yte, tfidf, False)
+        initialize_classifiers(x_tfidf, ytr, xte_clean, xte_tfidf, yte, tfidf, False)
 
 
 
