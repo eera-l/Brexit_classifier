@@ -10,11 +10,12 @@ from sklearn.model_selection import GridSearchCV
 from sklearn.naive_bayes import MultinomialNB
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.externals import joblib
-from sklearn.metrics import make_scorer, recall_score, accuracy_score, precision_score, f1_score, confusion_matrix
+from sklearn.metrics import make_scorer, recall_score, accuracy_score, precision_score, f1_score, confusion_matrix, cohen_kappa_score
 from scipy import sparse
 from sklearn.svm import LinearSVC
 from gensim import corpora
 from gensim.models.ldamodel import LdaModel
+from fleiss import fleissKappa
 from wordsegment import load, segment
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -35,16 +36,39 @@ def read_mixed_labels(y):
     return ydf
 
 
+def calculate_cohens_kappa(y):
+    labels = np.array([row.split('/') for row in y if len(row.split('/')) == 2
+                       and '-' not in row])
+    transposed_labels = np.transpose(labels)
+    k = cohen_kappa_score(transposed_labels[0], transposed_labels[1])
+    print(f'Cohen\'s kappa: {k:.3f}')
+
+
+def calculate_fleiss_kappa(y, raters):
+    labels = np.array([row.split('/') for row in y if len(row.split('/')) == raters
+                       and '-' not in row])
+    # Matrix of shape (n of samples, n of categories)
+    matrix = np.zeros((labels.shape[0], 2), dtype=int)
+    for idx, row in enumerate(labels):
+        matrix[idx][0] = np.count_nonzero(row == '0')
+        matrix[idx][1] = np.count_nonzero(row == '1')
+    f = fleissKappa(matrix, raters)
+    print(f'Fleiss\'s kappa with {raters} annotators: {f:.3f}')
+
+
 def read_file():
-    dataframe = pd.read_csv("a2a_train_final.tsv", sep="\t", names=["Label", "Comment"])
+    dataframe = pd.read_csv("a2a_train_final.tsv", sep="\t", names=['Label', 'Comment'])
     xtrain = dataframe.drop(columns=['Label'])
-    ytrain = dataframe.drop(columns=['Comment'])
-    ytrain = ytrain['Label']
+    ytrain = dataframe['Label']
+    calculate_cohens_kappa(ytrain)
+    calculate_fleiss_kappa(ytrain, 3)
+    calculate_fleiss_kappa(ytrain, 4)
+    calculate_fleiss_kappa(ytrain, 5)
+    calculate_fleiss_kappa(ytrain, 6)
     ytrain = read_mixed_labels(ytrain)
-    datatest = pd.read_csv("a2a_test_final.tsv", sep="\t", names=["Label", "Comment"])
-    xtest = datatest.drop(columns=["Label"])
-    ytest = datatest.drop(columns=["Comment"])
-    ytest = ytest['Label']
+    datatest = pd.read_csv("a2a_test_final.tsv", sep="\t", names=['Label', 'Comment'])
+    xtest = datatest.drop(columns=['Label'])
+    ytest = datatest['Label']
     return xtrain, ytrain, xtest, ytest
 
 
