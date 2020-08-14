@@ -36,22 +36,34 @@ def read_mixed_labels(y):
     return ydf
 
 
-def calculate_cohens_kappa(y):
-    labels = np.array([row.split('/') for row in y if len(row.split('/')) == 2
-                       and '-' not in row])
+def calculate_cohens_kappa(y, inclusive=False):
+    if inclusive:
+        labels = np.array([row.split('/') for row in y if len(row.split('/')) == 2])
+    else:
+        labels = np.array([row.split('/') for row in y if len(row.split('/')) == 2
+                           and '-' not in row])
     transposed_labels = np.transpose(labels)
     k = cohen_kappa_score(transposed_labels[0], transposed_labels[1])
     print(f'Cohen\'s kappa: {k:.3f}')
 
 
-def calculate_fleiss_kappa(y, raters):
-    labels = np.array([row.split('/') for row in y if len(row.split('/')) == raters
-                       and '-' not in row])
-    # Matrix of shape (n of samples, n of categories)
-    matrix = np.zeros((labels.shape[0], 2), dtype=int)
-    for idx, row in enumerate(labels):
-        matrix[idx][0] = np.count_nonzero(row == '0')
-        matrix[idx][1] = np.count_nonzero(row == '1')
+def calculate_fleiss_kappa(y, raters, inclusive=False):
+    if inclusive:
+        labels = np.array([row.split('/') for row in y if len(row.split('/')) == raters])
+        # Matrix of shape (n of samples, n of categories -- including -1 as a category)
+        matrix = np.zeros((labels.shape[0], 3), dtype=int)
+        for idx, row in enumerate(labels):
+            matrix[idx][0] = np.count_nonzero(row == '0')
+            matrix[idx][1] = np.count_nonzero(row == '1')
+            matrix[idx][2] = np.count_nonzero(row == '-1')
+    else:
+        labels = np.array([row.split('/') for row in y if len(row.split('/')) == raters
+                           and '-' not in row])
+        # Matrix of shape (n of samples, n of categories)
+        matrix = np.zeros((labels.shape[0], 2), dtype=int)
+        for idx, row in enumerate(labels):
+            matrix[idx][0] = np.count_nonzero(row == '0')
+            matrix[idx][1] = np.count_nonzero(row == '1')
     f = fleissKappa(matrix, raters)
     print(f'Fleiss\'s kappa with {raters} annotators: {f:.3f}')
 
